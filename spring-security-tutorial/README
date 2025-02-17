@@ -85,3 +85,29 @@ module "private_ec2_instance" {
     allowed_cidr_blocks = var.internal_cidr_blocks
   }
 }
+
+# Configuration réseau
+vpc_id              = "vpc-xxxxxx"
+subnet_id           = "subnet-xxxxxx"
+internal_cidr_blocks = ["10.0.0.0/16"]
+
+# Configuration EC2
+instance_type = "t2.large"
+base_ami_id   = "ami-xxxxx"
+oracle_ami_id = "ami-yyyyy"
+
+# Configuration base de données
+database_enabled = true
+db_host         = "localhost"
+db_port         = "1521"
+db_name         = "CATSDEV"
+db_user         = "admin"
+db_password     = "votre_mot_de_passe_secure"
+
+# Configuration schémas
+active_schema     = "cats_schema_1"
+rollback_schema   = "cats_schema_2"
+schema_1_name     = "cats_schema_1"
+schema_2_name     = "cats_schema_2"
+schema_3_name     = "cats_schema_3"
+schema_4_name     = "cats_schema_4"

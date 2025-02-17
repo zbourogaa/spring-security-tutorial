@@ -1,124 +1,14 @@
-# Création de l'instance EC2
-resource "aws_instance" "app_instance" {
-  instance_type = var.instance_type
-  ami           = var.ami_id  # Amazon Linux 2 AMI, à adapter selon votre région
-  subnet_id     = var.subnet_id
+#!/bin/bash
 
-  # Désactivation de l'accès public
-  associate_public_ip_address = false
+# Création du fichier des variables d'environnement
+cat << EOF > /etc/environment
+%{ for key, value in env_vars ~}
+${key}=${value}
+%{ endfor ~}
+EOF
 
-  # Volume EBS pour les données
-  ebs_block_device {
-    device_name = "/dev/sdb"
-    volume_size = 100
-    volume_type = "gp3"
-    encrypted   = true
-  }
+# Appliquer les permissions
+chmod 644 /etc/environment
 
-  # User data script pour configurer les variables d'environnement
-  user_data = templatefile("${path.module}/templates/user_data.sh.tpl", {
-    env_vars = var.app_environment_variables
-  })
-
-  # Tags
-  tags = merge(
-    var.tags,
-    {
-      Name        = "${var.environment}-instance"
-      Environment = var.environment
-    }
-  )
-
-  vpc_security_group_ids = [aws_security_group.app_sg.id]
-}
-
-# Groupe de sécurité
-resource "aws_security_group" "app_sg" {
-  name        = "${var.environment}-app-sg"
-  description = "Security group for application instance"
-  vpc_id      = var.vpc_id
-
-  # Règles entrantes selon les besoins
-  dynamic "ingress" {
-    for_each = var.security_group_rules.internal_only ? var.security_group_rules.allowed_cidr_blocks : []
-    content {
-      from_port   = 0
-      to_port     = 0
-      protocol    = "-1"
-      cidr_blocks = [ingress.value]
-    }
-  }
-
-  # Règle sortante
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = var.security_group_rules.allowed_cidr_blocks
-  }
-
-  tags = {
-    Name        = "${var.environment}-app-sg"
-    Environment = var.environment
-  }
-}
-
-variable "environment" {
-  description = "Environnement (dev, iua, eua, qa, prod)"
-  type        = string
-}
-
-variable "instance_type" {
-  description = "Type d'instance EC2"
-  type        = string
-}
-
-variable "ami_id" {
-  description = "ID de l'AMI à utiliser"
-  type        = string
-  default     = "ami-0ce1e3f77cd41957e"  # Amazon Linux 2 dans eu-west-3 (Paris)
-}
-
-variable "subnet_id" {
-  description = "ID du subnet"
-  type        = string
-}
-
-variable "vpc_id" {
-  description = "ID du VPC"
-  type        = string
-}
-
-variable "app_environment_variables" {
-  description = "Variables d'environnement pour les applications"
-  type        = map(string)
-}
-
-variable "security_group_rules" {
-  description = "Règles pour le groupe de sécurité"
-  type = object({
-    internal_only       = bool
-    allowed_cidr_blocks = list(string)
-  })
-}
-
-variable "tags" {
-  description = "Tags additionnels pour les ressources"
-  type        = map(string)
-  default     = {}
-}
-
-output "instance_id" {
-  description = "ID de l'instance EC2"
-  value       = aws_instance.app_instance.id
-}
-
-output "private_ip" {
-  description = "IP privée de l'instance"
-  value       = aws_instance.app_instance.private_ip
-}
-
-output "security_group_id" {
-  description = "ID du groupe de sécurité"
-  value       = aws_security_group.app_sg.id
-}
+cd terraform/environments/dev
+terraform init

@@ -1,14 +1,3 @@
-#!/bin/bash
-
-# Création du fichier des variables d'environnement
-cat << EOF > /etc/environment
-%{ for key, value in env_vars ~}
-${key}=${value}
-%{ endfor ~}
-EOF
-
-# Appliquer les permissions
-chmod 644 /etc/environment
-
-cd terraform/environments/dev
-terraform init
+sudo yum install -y yum-utils
+sudo yum-config-manager --add-repo https://rpm.releases.hashicorp.com/AmazonLinux/hashicorp.repo
+sudo yum install -y terraform

@@ -1,60 +1,87 @@
-# CATS Application Infrastructure
+# Définition du provider AWS
+provider "aws" {
+  region = var.aws_region
+}
 
-Infrastructure as Code pour l'application CATS.
+# Module pour l'instance EC2 privée
+module "private_ec2_instance" {
+  source = "../../modules/ec2-apps"
 
-## Description
-Ce repository contient la configuration Terraform pour déployer l'infrastructure de l'application CATS sur AWS.
+  environment   = "dev"
+  instance_type = var.instance_type
+  
+  # Configuration réseau privée
+  vpc_id        = var.vpc_id
+  subnet_id     = var.subnet_id
+  associate_public_ip_address = false
 
-## Environnements
-- DEV  : Environnement de développement
-- IUA  : Integration User Acceptance
-- EUA  : End User Acceptance
-- QA   : Quality Assurance
-- PROD : Production
+  # Variables d'environnement pour les applications
+  app_environment_variables = merge(
+    {
+      # Variables communes
+      ENVIRONMENT = "dev"
+      
+      # Ports des services
+      AUTH_SERVICE_PORT = "3000"
+      API_SERVICE_PORT  = "3001"
+      
+      # Configuration multi-schémas
+      ACTIVE_SCHEMA    = var.active_schema      # Schéma actuellement utilisé
+      ROLLBACK_SCHEMA  = var.rollback_schema    # Schéma de rollback si besoin
+      
+      # Liste des schémas disponibles pour référence
+      SCHEMA_1         = var.schema_1_name
+      SCHEMA_2         = var.schema_2_name
+      SCHEMA_3         = var.schema_3_name
+      SCHEMA_4         = var.schema_4_name
+    },
+    var.database_enabled ? {
+      # Configuration de base Oracle
+      DB_HOST     = var.db_host
+      DB_PORT     = var.db_port
+      DB_NAME     = var.db_name
+      DB_USER     = var.db_user
+      DB_PASSWORD = var.db_password
+      
+      # Variables Oracle si base locale
+      ORACLE_HOME = var.db_host == "localhost" ? "/u01/app/oracle/product/19.0.0/dbhome_1" : null
+      ORACLE_SID  = var.db_host == "localhost" ? var.db_name : null
+      ORACLE_BASE = var.db_host == "localhost" ? "/u01/app/oracle" : null
+    } : {}
+  )
 
-## Structure du Projet
-```
-cats-app-infrastructure/
-├── terraform/          # Configuration Terraform
-├── scripts/           # Scripts utilitaires
-├── README.md          # Ce fichier
-└── .gitignore         # Configuration Git
-```
+  # Configuration des volumes (si Oracle local)
+  dynamic "ebs_volumes" {
+    for_each = var.database_enabled && var.db_host == "localhost" ? [1] : []
+    content {
+      oracle_data = {
+        size = 100
+        type = "gp3"
+        mount_point = "/u01"
+      }
+    }
+  }
 
-## Prérequis
-- Terraform >= 1.0.0
-- AWS CLI configuré
-- Git
+  # AMI ID 
+  ami_id = var.database_enabled && var.db_host == "localhost" ? var.oracle_ami_id : var.base_ami_id
 
-## Comment utiliser
+  tags = merge(
+    {
+      Environment     = "dev"
+      Project         = "cats"
+      ManagedBy       = "terraform"
+      Confidentiality = "high"
+      Internal        = "true"
+      ActiveSchema    = var.active_schema
+    },
+    var.database_enabled ? {
+      Database = "oracle"
+    } : {}
+  )
 
-1. Cloner le repository
-```bash
-git clone [URL_DU_REPO]
-```
-
-2. Se placer dans le bon environnement
-```bash
-cd terraform/environments/[ENV]
-```
-
-3. Initialiser Terraform
-```bash
-terraform init
-```
-
-4. Planifier les changements
-```bash
-terraform plan
-```
-
-5. Appliquer les changements
-```bash
-terraform apply
-```
-
-## Maintenu par
-[Votre équipe]
-
-## Licence
-Propriétaire - Tous droits réservés
+  # Sécurité
+  security_group_rules = {
+    internal_only = true
+    allowed_cidr_blocks = var.internal_cidr_blocks
+  }
+}

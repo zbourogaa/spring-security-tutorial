@@ -1,28 +1,60 @@
-# Terraform
-.terraform/
-*.tfstate
-*.tfstate.*
-*.tfvars
-.terraformrc
-terraform.rc
-crash.log
+# CATS Application Infrastructure
 
-# Local .terraform directories
-**/.terraform/*
+Infrastructure as Code pour l'application CATS.
 
-# .tfstate files
-*.tfstate
-*.tfstate.*
+## Description
+Ce repository contient la configuration Terraform pour déployer l'infrastructure de l'application CATS sur AWS.
 
-# IDE
-.idea/
-.vscode/
-*.swp
-*.swo
+## Environnements
+- DEV  : Environnement de développement
+- IUA  : Integration User Acceptance
+- EUA  : End User Acceptance
+- QA   : Quality Assurance
+- PROD : Production
 
-# OS
-.DS_Store
-Thumbs.db
+## Structure du Projet
+```
+cats-app-infrastructure/
+├── terraform/          # Configuration Terraform
+├── scripts/           # Scripts utilitaires
+├── README.md          # Ce fichier
+└── .gitignore         # Configuration Git
+```
 
-# Logs
-*.log
+## Prérequis
+- Terraform >= 1.0.0
+- AWS CLI configuré
+- Git
+
+## Comment utiliser
+
+1. Cloner le repository
+```bash
+git clone [URL_DU_REPO]
+```
+
+2. Se placer dans le bon environnement
+```bash
+cd terraform/environments/[ENV]
+```
+
+3. Initialiser Terraform
+```bash
+terraform init
+```
+
+4. Planifier les changements
+```bash
+terraform plan
+```
+
+5. Appliquer les changements
+```bash
+terraform apply
+```
+
+## Maintenu par
+[Votre équipe]
+
+## Licence
+Propriétaire - Tous droits réservés

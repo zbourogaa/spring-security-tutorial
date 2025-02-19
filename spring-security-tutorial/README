@@ -1,1 +1,78 @@
 c
+Avec HashiCorp Vault pour gérer les credentials AWS, nous devons modifier le pipeline. Voici un exemple :
+
+```yaml
+image: 
+  name: hashicorp/terraform:latest
+  entrypoint: [""]
+
+variables:
+  TF_ROOT: ${CI_PROJECT_DIR}/terraform
+  VAULT_ADDR: "votre_vault_url"  # URL de votre Vault
+  AWS_DEFAULT_REGION: "eu-west-3"
+
+.vault-login: &vault-login
+  - VAULT_TOKEN=$(vault write -field=token auth/jwt/login role=terraform jwt=$CI_JOB_JWT)
+  - export VAULT_TOKEN
+
+.get-aws-credentials: &get-aws-credentials
+  - AWS_CREDS=$(vault read -format=json aws/creds/terraform)
+  - export AWS_ACCESS_KEY_ID=$(echo $AWS_CREDS | jq -r .data.access_key)
+  - export AWS_SECRET_ACCESS_KEY=$(echo $AWS_CREDS | jq -r .data.secret_key)
+
+stages:
+  - validate
+  - plan
+  - apply
+  - destroy
+
+before_script:
+  - apt-get update && apt-get install -y jq curl
+  - curl -LO https://releases.hashicorp.com/vault/1.x.x/vault_1.x.x_linux_amd64.zip
+  - unzip vault_1.x.x_linux_amd64.zip
+  - mv vault /usr/local/bin/
+  - *vault-login
+  - *get-aws-credentials
+
+validate:
+  stage: validate
+  script:
+    - cd ${TF_ROOT}/environments/dev
+    - terraform init
+    - terraform validate
+
+plan:
+  stage: plan
+  script:
+    - cd ${TF_ROOT}/environments/dev
+    - terraform init
+    - terraform plan -var-file=dev.tfvars -out=plan.tfplan
+  artifacts:
+    paths:
+      - ${TF_ROOT}/environments/dev/plan.tfplan
+
+apply:
+  stage: apply
+  script:
+    - cd ${TF_ROOT}/environments/dev
+    - terraform init
+    - terraform apply -auto-approve plan.tfplan
+  dependencies:
+    - plan
+  when: manual
+
+destroy:
+  stage: destroy
+  script:
+    - cd ${TF_ROOT}/environments/dev
+    - terraform init
+    - terraform destroy -auto-approve -var-file=dev.tfvars
+  when: manual
+```
+
+Points clés :
+1. Utilisation de `auth/jwt/login` pour s'authentifier auprès de Vault
+2. Récupération des credentials AWS depuis Vault
+3. Configuration d'un `before_script` pour installer et configurer Vault
+
+Avez-vous besoin de plus de détails sur une partie spécifique de cette configuration ?

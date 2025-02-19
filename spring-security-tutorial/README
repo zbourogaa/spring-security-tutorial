@@ -40,12 +40,14 @@ cache:
 
 stages:
   - prepare
-  - build
+  - compile
+  - test
+  - package
   - quality
   - security
   - publish
 
-# Préparation
+# Stage: prepare
 vault:retrieve-secrets:
   stage: prepare
   extends: .vault-secret-retriever
@@ -57,30 +59,26 @@ vault:retrieve-secrets:
       NEXUS_CERT@gitlab/app-00451/kv/nexus@NEXUS_CERT
       CATS_KEY_PAIR@gitlab/app-00451/kv/aws-cat-poc@EC2-KEY-PAIR
 
-# Build
-.build:
-  stage: build
+# Stage: compile
+build:compile:
+  stage: compile
+  extends: .maven-compile
   needs:
     - vault:retrieve-secrets
 
-build:compile:
-  extends: 
-    - .build
-    - .maven-compile
-
+# Stage: test
 build:test:
-  extends: 
-    - .build
-    - .maven-test
+  stage: test
+  extends: .maven-test
   needs:
     - build:compile
   dependencies:
     - build:compile
 
+# Stage: package
 build:package:
-  extends: 
-    - .build
-    - .maven-build
+  stage: package
+  extends: .maven-build
   needs:
     - build:test
   dependencies:
@@ -90,7 +88,7 @@ build:package:
       - target/${ARTIFACT_ID}
     expire_in: 1 day
 
-# Quality
+# Stage: quality
 quality:sonar:
   stage: quality
   extends: 
@@ -119,7 +117,7 @@ quality:coverage:
         coverage_format: cobertura
         path: target/site/cobertura.xml
 
-# Security
+# Stage: security
 security:semgrep:
   stage: security
   before_script:
@@ -130,7 +128,7 @@ security:semgrep:
   needs:
     - quality:sonar
 
-# Publication dans le registry GitLab
+# Stage: publish
 publish:registry:
   stage: publish
   script:

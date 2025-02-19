@@ -79,6 +79,7 @@ build:test:
     - .build
     - .maven-test
   needs:
+    - vault:retrieve-secrets
     - build:compile
   dependencies:
     - vault:retrieve-secrets

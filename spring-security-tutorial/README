@@ -46,13 +46,9 @@ stages:
   - publish
 
 # Préparation
-.prepare:
-  stage: prepare
-
 vault:retrieve-secrets:
-  extends: 
-    - .prepare
-    - .vault-secret-retriever
+  stage: prepare
+  extends: .vault-secret-retriever
   variables:
     VS_SECRET_LIST: |
       SONAR_HOST_URL@gitlab/app-00451/kv/sonarqube@SONAR_HOST_URL
@@ -71,18 +67,14 @@ build:compile:
   extends: 
     - .build
     - .maven-compile
-  dependencies:
-    - vault:retrieve-secrets
 
 build:test:
   extends: 
     - .build
     - .maven-test
   needs:
-    - vault:retrieve-secrets
     - build:compile
   dependencies:
-    - vault:retrieve-secrets
     - build:compile
 
 build:package:
@@ -92,7 +84,6 @@ build:package:
   needs:
     - build:test
   dependencies:
-    - vault:retrieve-secrets
     - build:test
   artifacts:
     paths:
@@ -100,12 +91,9 @@ build:package:
     expire_in: 1 day
 
 # Quality
-.quality:
-  stage: quality
-
 quality:sonar:
+  stage: quality
   extends: 
-    - .quality
     - .maven-shared
     - .sonarqube-code-scan
   before_script:
@@ -116,9 +104,8 @@ quality:sonar:
     - build:test
 
 quality:coverage:
-  extends: 
-    - .quality
-    - .coverage
+  stage: quality
+  extends: .coverage
   needs:
     - quality:sonar
   dependencies:

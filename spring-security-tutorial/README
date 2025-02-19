@@ -1,78 +1,156 @@
-c
-Avec HashiCorp Vault pour gérer les credentials AWS, nous devons modifier le pipeline. Voici un exemple :
+include:
+  - project: 'app/app-00451/microservices/ci-common'
+    ref: "feature/maven_3-9-4_java-17"
+    file: 'includes.yml'
+  - project: 'ci/stable/sdlc-templates/notification'
+    ref: '0.0.8'
+    file: 'templates/notification.yml'
 
-```yaml
-image: 
-  name: hashicorp/terraform:latest
-  entrypoint: [""]
+default:
+  tags: 
+    - LSEG
+  image: ${CI_DEPENDENCY_PROXY_DIRECT_GROUP_IMAGE_PREFIX}/maven:3.9.4-eclipse-temurin-17
 
 variables:
-  TF_ROOT: ${CI_PROJECT_DIR}/terraform
-  VAULT_ADDR: "votre_vault_url"  # URL de votre Vault
-  AWS_DEFAULT_REGION: "eu-west-3"
+  extends: .sonarqube_variables
+  APP_ID: "APP-00451"
+  LSEG_VAULT_NAMESPACE: "aws"
+  ARTIFACT_ID: "cats-gateway-${ARTIFACT_VERSION}.jar"
+  ARTIFACT_VERSION:
+    value: "${CI_COMMIT_SHORT_SHA}"
+    description: "artifact version or else CI_COMMIT_SHORT_SHA"
+  PROJECT_ID: "cats-gateway"
+  PROJECT_NAME: "app-00451_cats-gateway"
+  PROJECT_VERSION: "latest"
+  COV_BUILD_CMD: "make build"
+  POM_FILE_LOCATION: "./pom.xml"
+  SONAR_PROJECT_KEY: "app-00451_cats-gateway"
+  REPOSITORY_NAME: "${PROJECT_ID}"
+  REMOTE_USER: "ec2-user"
+  REMOTE_HOST:
+    value: "10.95.108.151"
+    description: "IP of the EC2 to install the app"
+  REMOTE_WORKING_DIR: "/opt/java/"
 
-.vault-login: &vault-login
-  - VAULT_TOKEN=$(vault write -field=token auth/jwt/login role=terraform jwt=$CI_JOB_JWT)
-  - export VAULT_TOKEN
-
-.get-aws-credentials: &get-aws-credentials
-  - AWS_CREDS=$(vault read -format=json aws/creds/terraform)
-  - export AWS_ACCESS_KEY_ID=$(echo $AWS_CREDS | jq -r .data.access_key)
-  - export AWS_SECRET_ACCESS_KEY=$(echo $AWS_CREDS | jq -r .data.secret_key)
+cache:
+  key: maven-cache-${ARTIFACT_VERSION}
+  paths:
+    - .m2/repository
+    - target/
 
 stages:
-  - validate
-  - plan
-  - apply
-  - destroy
+  - prepare
+  - build
+  - quality
+  - security
+  - publish
 
-before_script:
-  - apt-get update && apt-get install -y jq curl
-  - curl -LO https://releases.hashicorp.com/vault/1.x.x/vault_1.x.x_linux_amd64.zip
-  - unzip vault_1.x.x_linux_amd64.zip
-  - mv vault /usr/local/bin/
-  - *vault-login
-  - *get-aws-credentials
+# Préparation
+.prepare:
+  stage: prepare
 
-validate:
-  stage: validate
-  script:
-    - cd ${TF_ROOT}/environments/dev
-    - terraform init
-    - terraform validate
+vault:retrieve-secrets:
+  extends: 
+    - .prepare
+    - .vault-secret-retriever
+  variables:
+    VS_SECRET_LIST: |
+      SONAR_HOST_URL@gitlab/app-00451/kv/sonarqube@SONAR_HOST_URL
+      SONAR_TOKEN@gitlab/app-00451/kv/sonarqube@SONAR_USER_TOKEN
+      SONAR_CERT@gitlab/app-00451/kv/sonarqube@SONAR_CERT
+      NEXUS_CERT@gitlab/app-00451/kv/nexus@NEXUS_CERT
+      CATS_KEY_PAIR@gitlab/app-00451/kv/aws-cat-poc@EC2-KEY-PAIR
 
-plan:
-  stage: plan
-  script:
-    - cd ${TF_ROOT}/environments/dev
-    - terraform init
-    - terraform plan -var-file=dev.tfvars -out=plan.tfplan
+# Build
+.build:
+  stage: build
+  needs:
+    - vault:retrieve-secrets
+
+build:compile:
+  extends: 
+    - .build
+    - .maven-compile
+  dependencies:
+    - vault:retrieve-secrets
+
+build:test:
+  extends: 
+    - .build
+    - .maven-test
+  needs:
+    - build:compile
+  dependencies:
+    - vault:retrieve-secrets
+    - build:compile
+
+build:package:
+  extends: 
+    - .build
+    - .maven-build
+  needs:
+    - build:test
+  dependencies:
+    - vault:retrieve-secrets
+    - build:test
   artifacts:
     paths:
-      - ${TF_ROOT}/environments/dev/plan.tfplan
+      - target/${ARTIFACT_ID}
+    expire_in: 1 day
 
-apply:
-  stage: apply
-  script:
-    - cd ${TF_ROOT}/environments/dev
-    - terraform init
-    - terraform apply -auto-approve plan.tfplan
+# Quality
+.quality:
+  stage: quality
+
+quality:sonar:
+  extends: 
+    - .quality
+    - .maven-shared
+    - .sonarqube-code-scan
+  before_script:
+    - !reference [.vault-artifact-decrypter, before_script]
+    - !reference [.maven-shared, before_script]
+  needs:
+    - vault:retrieve-secrets
+    - build:test
+
+quality:coverage:
+  extends: 
+    - .quality
+    - .coverage
+  needs:
+    - quality:sonar
   dependencies:
-    - plan
-  when: manual
-
-destroy:
-  stage: destroy
+    - quality:sonar
+  allow_failure: true
   script:
-    - cd ${TF_ROOT}/environments/dev
-    - terraform init
-    - terraform destroy -auto-approve -var-file=dev.tfvars
-  when: manual
-```
+    - mkdir -p target/site
+  artifacts:
+    reports:
+      coverage_report:
+        coverage_format: cobertura
+        path: target/site/cobertura.xml
 
-Points clés :
-1. Utilisation de `auth/jwt/login` pour s'authentifier auprès de Vault
-2. Récupération des credentials AWS depuis Vault
-3. Configuration d'un `before_script` pour installer et configurer Vault
+# Security
+security:semgrep:
+  stage: security
+  before_script:
+    - export no_proxy=$no_proxy,lseg.com
+  extends: .semgrep-lseg-sast
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "push"
+  needs:
+    - quality:sonar
 
-Avez-vous besoin de plus de détails sur une partie spécifique de cette configuration ?
+# Publication dans le registry GitLab
+publish:registry:
+  stage: publish
+  script:
+    - echo "Uploading the artifact to GITLAB Repository"
+    - |
+      curl --header "JOB-TOKEN: $CI_JOB_TOKEN" \
+           --upload-file target/${ARTIFACT_ID} \
+           "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/cats/cats-gateway/${ARTIFACT_VERSION}/${ARTIFACT_ID}"
+  needs:
+    - job: build:package
+      artifacts: true
